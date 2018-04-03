@@ -1,0 +1,357 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodePipeline for the CCR application
+Parameters:
+
+  ApplicationName:
+    Type: String
+    Description: Name of Codebuild resources
+
+  GitHubRepo:
+    Type: String
+
+  GitHubBranch:
+    Type: String
+
+  GitHubToken:
+    Type: String
+
+  GitHubUser:
+    Type: String
+
+Resources:
+
+  EcrRepository: 
+    Type: "AWS::ECR::Repository"
+    Properties: 
+      RepositoryName: !Ref ApplicationName
+      RepositoryPolicyText: 
+        Version: "2012-10-17"
+        Statement: 
+        - 
+          Sid: AllowPushPullAccount
+          Effect: Allow
+          Principal: 
+            AWS: 
+              - !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action:
+            - "ecr:GetDownloadUrlForLayer"
+            - "ecr:BatchGetImage"
+            - "ecr:BatchCheckLayerAvailability"
+            - "ecr:GetDownloadUrlForLayer"
+            - "ecr:PutImage"
+            - "ecr:InitiateLayerUpload"
+            - "ecr:UploadLayerPart"
+            - "ecr:CompleteLayerUpload"
+        - 
+          Sid: AllowPushPullAccountUsers
+          Effect: Allow
+          Principal: 
+            AWS:
+              - !Sub "arn:aws:iam::${AWS::AccountId}:user/morten"
+          Action: 
+            - "ecr:GetDownloadUrlForLayer"
+            - "ecr:BatchGetImage"
+            - "ecr:BatchCheckLayerAvailability"
+            - "ecr:GetDownloadUrlForLayer"
+            - "ecr:PutImage"
+            - "ecr:InitiateLayerUpload"
+            - "ecr:UploadLayerPart"
+            - "ecr:CompleteLayerUpload"
+
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Used by Assumed Roles to Encrypt/Decrypt code
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+        -
+          Sid: Allows admin of the key in AWS Account
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action:
+          - "kms:Create*"
+          - "kms:Describe*"
+          - "kms:Enable*"
+          - "kms:List*"
+          - "kms:Put*"
+          - "kms:Update*"
+          - "kms:Revoke*"
+          - "kms:Disable*"
+          - "kms:Get*"
+          - "kms:Delete*"
+          - "kms:ScheduleKeyDeletion"
+          - "kms:CancelKeyDeletion"
+          Resource: "*"
+        -
+          Sid: Allow use of the key in AWS account
+          Effect: Allow
+          Principal:
+            AWS:
+            - !Sub arn:aws:iam::${AWS::AccountId}:root
+          Action:
+          - kms:Encrypt
+          - kms:Decrypt
+          - kms:ReEncrypt*
+          - kms:GenerateDataKey*
+          - kms:DescribeKey
+          Resource: "*"
+
+  KMSAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${ApplicationName}-codepipeline-key
+      TargetKeyId: !Ref KMSKey
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+#    DeletionPolicy: Retain
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub ${ApplicationName}-CodeBuildRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        -
+          Effect: Allow
+          Principal:
+            Service:
+            - codebuild.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+
+  CodeBuildPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: S3BucketPolicy
+    Properties:
+      PolicyName: !Sub ${ApplicationName}-CodeBuildPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - 
+          Effect: Allow
+          Action:
+          - logs:CreateLogGroup
+          - logs:CreateLogStream
+          - logs:PutLogEvents
+          - ecr:GetAuthorizationToken
+          Resource: "*"
+        - 
+          Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:PutObject
+          - s3:GetObjectVersion
+          - s3:GetBucketPolicy
+          - s3:ListBucket
+          Resource:
+          -  !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket ] ]
+          -  !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket, "/*" ] ]
+        -
+          Effect: Allow
+          Action:
+          - kms:Encrypt
+          - kms:Decrypt
+          - kms:ReEncrypt*
+          - kms:GenerateDataKey*
+          - kms:DescribeKey
+          Resource: !GetAtt KMSKey.Arn
+        - 
+          Effect: Allow
+          Action:
+          - ecr:GetDownloadUrlForLayer
+          - ecr:BatchGetImage
+          - ecr:BatchCheckLayerAvailability
+          - ecr:PutImage
+          - ecr:InitiateLayerUpload
+          - ecr:UploadLayerPart
+          - ecr:CompleteLayerUpload
+          Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepository}"
+#            Resource: "*"
+# arn:aws:ecr:eu-west-1:899743020799:repository/test
+      Roles:
+        - !Ref CodeBuildServiceRole
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "", [ !Ref ApplicationName , "-build" ] ]
+      Description: !Join [ '', [ 'Project to build the Java application ', !Ref ApplicationName ] ]
+      EncryptionKey: !Ref KMSKey
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Location: !Ref ArtifactBucket
+        Type: "S3"
+      Source:
+        Location: !Join [ "", [ !Ref ArtifactBucket, "/source.zip" ] ]
+        Type: "S3"
+        BuildSpec: buildspec.yml
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/docker:17.09.0"
+        Type: "LINUX_CONTAINER"
+        EnvironmentVariables:
+        - Name: AWS_DEFAULT_REGION
+          Value: !Ref AWS::Region
+        - Name: REPOSITORY_URI
+          #  [account].dkr.ecr.[region].amazonaws.com/ 
+          # Value: !Join [ "", [ !Ref "AWS::AccountId", ".dkr.ecr.", !Ref "AWS::Region", ".amazonaws.com/", !Ref EcrRepository ] ]
+          Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}"
+        - Name: ARTIFACT_BUCKET
+          Value: !Ref ArtifactBucket
+        - Name: APPLICATION_NAME
+          Value: !Ref ApplicationName
+      TimeoutInMinutes: 20
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ApplicationName}-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        -
+          Effect: Allow
+          Principal:
+            Service:
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+  CodePipelinePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: S3BucketPolicy
+    Properties:
+      PolicyName: !Sub ${ApplicationName}-codepipeline-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - 
+          Effect: Allow
+          Action:
+          - codepipeline:*
+          - codebuild:StartBuild
+          - codebuild:BatchGetBuilds
+          - iam:PassRole
+          - cloudFormation:List*
+          - cloudformation:CreateStack
+          - cloudformation:DeleteStack
+          - cloudformation:DescribeStacks
+          - cloudformation:UpdateStack
+          - cloudformation:CreateChangeSet
+          - cloudformation:DeleteChangeSet
+          - cloudformation:DescribeChangeSet
+          - cloudformation:ExecuteChangeSet
+          - cloudformation:SetStackPolicy
+          - cloudformation:ValidateTemplate
+          - iam:ListRoles
+          - s3:ListAllMyBuckets
+          - s3:GetBucketLocation
+          Resource: "*"
+        - 
+          Effect: Allow
+          Action:
+          - ecs:DescribeServices
+          - ecs:DescribeTaskDefinition
+          - ecs:DescribeTasks
+          - ecs:ListTasks
+          - ecs:RegisterTaskDefinition
+          - ecs:UpdateService
+          Resource: "*"
+        -
+          Effect: Allow
+          Action:
+          - kms:Encrypt
+          - kms:Decrypt
+          - kms:ReEncrypt*
+          - kms:GenerateDataKey*
+          - kms:DescribeKey
+          Resource: !GetAtt KMSKey.Arn
+        -
+          Effect: Allow
+          Action:
+          - s3:PutObject
+          - s3:GetObject
+          - s3:GetObjectVersion
+          - s3:GetBucketVersioning
+          - s3:ListBucket
+          Resource:
+          -  !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket ] ]
+          -  !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket, "/*" ] ]              
+      Roles:
+      - !Ref CodePipelineServiceRole
+
+  Pipeline:
+    DependsOn: [ CodePipelinePolicy, CodeBuildPolicy ]
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: App
+          ActionTypeId:
+            Category: Source
+            Owner: ThirdParty
+            Version: 1
+            Provider: GitHub
+          Configuration:
+            Owner: !Ref GitHubUser
+            Repo: !Ref GitHubRepo
+            Branch: !Ref GitHubBranch
+            OAuthToken: !Ref GitHubToken
+          OutputArtifacts:
+            - Name: App
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - Name: Build
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: 1
+            Provider: CodeBuild
+          Configuration:
+            ProjectName: !Ref CodeBuildProject
+          InputArtifacts:
+            - Name: App
+          OutputArtifacts:
+            - Name: BuildOutput
+          RunOrder: 1
+
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+        EncryptionKey:
+          Id: !Ref KMSKey
+          Type: KMS
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Statement:
+        -
+          Action:
+          - s3:*
+          Effect: Allow
+          Resource:
+          -  !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket ] ]
+          -  !Join [ "", [ "arn:aws:s3:::", !Ref ArtifactBucket, "/*" ] ]
+          Principal:
+            AWS:
+            - !GetAtt CodeBuildServiceRole.Arn
+            - !GetAtt CodePipelineServiceRole.Arn
+
+Outputs:
+  PipelineUrl:
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${Pipeline}
