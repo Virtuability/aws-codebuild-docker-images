@@ -1,2 +1,9 @@
 # aws cloudformation package output
 *.packaged
+
+# Environment source script
+env.sh
+
+# Cloudformation parameter files
+*.json
+

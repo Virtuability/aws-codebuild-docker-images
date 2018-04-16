@@ -5,7 +5,7 @@ Parameters:
 
   ApplicationName:
     Type: String
-    Description: Name of Codebuild resources
+    Description: Name of Codebuild resources. Note that name must be all lowercase characters. 
 
   GitHubRepo:
     Type: String
@@ -193,9 +193,9 @@ Resources:
       Source:
         Location: !Join [ "", [ !Ref ArtifactBucket, "/source.zip" ] ]
         Type: "S3"
-        BuildSpec: buildspec.yml
+        BuildSpec: buildspec-pipeline-1.yml
       Environment:
-        ComputeType: "BUILD_GENERAL1_SMALL"
+        ComputeType: "BUILD_GENERAL1_MEDIUM"
         Image: "aws/codebuild/docker:17.09.0"
         Type: "LINUX_CONTAINER"
         EnvironmentVariables:
