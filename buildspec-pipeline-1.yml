@@ -3,13 +3,15 @@ version: 0.2
 phases:
   build:
     commands:
+# Get ECR docker login command and run
+      - docker_login=$( aws ecr get-login --no-include-email --region ${AWS_DEFAULT_REGION} )
+      - $docker_login
 #      - cd $CODEBUILD_SRC_DIR/ubuntu/android-java-8/24.4.1
 #      - docker build -t aws/codebuild/android-java-8:24.4.1 .
       - cd $CODEBUILD_SRC_DIR/ubuntu/docker/17.09.0
       - docker build -t aws/codebuild/docker:17.09.0 .
-      - aws ecr get-login --no-include-email --region ${AWS_DEFAULT_REGION}
-      - docker tag aws/codebuild/docker:17.09.0 $REPOSITORY_URI/aws-codebuild-docker-17.09.0:latest
-      - docker push $REPOSITORY_URI/aws-codebuild-docker-17.09.0:latest
+      - docker tag aws/codebuild/docker:17.09.0 $REPOSITORY_URI:aws-codebuild-docker-17.09.0-latest
+      - docker push $REPOSITORY_URI:aws-codebuild-docker-17.09.0-latest
 #      - cd $CODEBUILD_SRC_DIR/ubuntu/dot-net/core-1
 #      - docker build -t aws/codebuild/dot-net:core-1 .
 #      - cd $CODEBUILD_SRC_DIR/ubuntu/dot-net/core-2
@@ -47,4 +49,4 @@ phases:
 #      - cd $CODEBUILD_SRC_DIR/ubuntu/php/7.0
 #      - docker build -t aws/codebuild/php:7.0 .
 #      - cd $CODEBUILD_SRC_DIR/ubuntu/ubuntu-base/14.04
-#      - docker build -t aws/codebuild/ubuntu-base:14.04
+#      - docker build -t aws/codebuild/ubuntu-base:14.04 .
