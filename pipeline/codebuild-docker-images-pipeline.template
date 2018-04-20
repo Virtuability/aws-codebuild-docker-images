@@ -180,10 +180,10 @@ Resources:
       Roles:
         - !Ref CodeBuildServiceRole
 
-  CodeBuildProject:
+  CodeBuildProjectDocker17:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: !Join [ "", [ !Ref ApplicationName , "-build" ] ]
+      Name: !Join [ "", [ !Ref ApplicationName , "-codebuild-docker-17" ] ]
       Description: !Join [ '', [ 'Project to build the Java application ', !Ref ApplicationName ] ]
       EncryptionKey: !Ref KMSKey
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
@@ -193,7 +193,7 @@ Resources:
       Source:
         Location: !Join [ "", [ !Ref ArtifactBucket, "/source.zip" ] ]
         Type: "S3"
-        BuildSpec: buildspec-pipeline-1.yml
+        BuildSpec: buildspec-aws-codebuild-docker-17.yml
       Environment:
         ComputeType: "BUILD_GENERAL1_MEDIUM"
         Image: "aws/codebuild/docker:17.09.0"
@@ -202,8 +202,35 @@ Resources:
         - Name: AWS_DEFAULT_REGION
           Value: !Ref AWS::Region
         - Name: REPOSITORY_URI
-          #  [account].dkr.ecr.[region].amazonaws.com/ 
-          # Value: !Join [ "", [ !Ref "AWS::AccountId", ".dkr.ecr.", !Ref "AWS::Region", ".amazonaws.com/", !Ref EcrRepository ] ]
+          Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}"
+        - Name: ARTIFACT_BUCKET
+          Value: !Ref ArtifactBucket
+        - Name: APPLICATION_NAME
+          Value: !Ref ApplicationName
+      TimeoutInMinutes: 20
+
+  CodeBuildProjectPython27:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join [ "", [ !Ref ApplicationName , "-codebuild-python-2-7" ] ]
+      Description: !Join [ '', [ 'Project to build the Java application ', !Ref ApplicationName ] ]
+      EncryptionKey: !Ref KMSKey
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Location: !Ref ArtifactBucket
+        Type: "S3"
+      Source:
+        Location: !Join [ "", [ !Ref ArtifactBucket, "/source.zip" ] ]
+        Type: "S3"
+        BuildSpec: buildspec-aws-codebuild-python-2-7.yml
+      Environment:
+        ComputeType: "BUILD_GENERAL1_MEDIUM"
+        Image: "aws/codebuild/docker:17.09.0"
+        Type: "LINUX_CONTAINER"
+        EnvironmentVariables:
+        - Name: AWS_DEFAULT_REGION
+          Value: !Ref AWS::Region
+        - Name: REPOSITORY_URI
           Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}"
         - Name: ARTIFACT_BUCKET
           Value: !Ref ArtifactBucket
@@ -313,18 +340,31 @@ Resources:
           RunOrder: 1
       - Name: Build
         Actions:
-        - Name: Build
+        - Name: BuildDocker17
           ActionTypeId:
             Category: Build
             Owner: AWS
             Version: 1
             Provider: CodeBuild
           Configuration:
-            ProjectName: !Ref CodeBuildProject
+            ProjectName: !Ref CodeBuildProjectDocker17
           InputArtifacts:
             - Name: App
           OutputArtifacts:
-            - Name: BuildOutput
+            - Name: BuildDocker17Output
+          RunOrder: 1
+        - Name: BuildPython27
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: 1
+            Provider: CodeBuild
+          Configuration:
+            ProjectName: !Ref CodeBuildProjectPython27
+          InputArtifacts:
+            - Name: App
+          OutputArtifacts:
+            - Name: BuildPython27Output
           RunOrder: 1
 
       ArtifactStore:

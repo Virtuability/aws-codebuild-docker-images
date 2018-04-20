@@ -1,0 +1,11 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - docker_login=$( aws ecr get-login --no-include-email --region ${AWS_DEFAULT_REGION} )
+      - $docker_login
+      - cd $CODEBUILD_SRC_DIR/ubuntu/docker/17.09.0
+      - docker build -t aws/codebuild/docker:17.09.0 .
+      - docker tag aws/codebuild/docker:17.09.0 $REPOSITORY_URI:aws-codebuild-docker-17.09.0-latest
+      - docker push $REPOSITORY_URI:aws-codebuild-docker-17.09.0-latest

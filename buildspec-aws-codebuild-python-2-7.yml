@@ -1,0 +1,11 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - docker_login=$( aws ecr get-login --no-include-email --region ${AWS_DEFAULT_REGION} )
+      - $docker_login
+      - cd $CODEBUILD_SRC_DIR/ubuntu/python/2.7.12
+      - docker build -t aws/codebuild/python:2.7.12 .
+      - docker tag aws/codebuild/python:2.7.12 $REPOSITORY_URI:aws-codebuild-python-2.7.12-latest
+      - docker push $REPOSITORY_URI:aws-codebuild-python-2.7.12-latest
